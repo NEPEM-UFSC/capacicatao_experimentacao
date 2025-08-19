@@ -1,0 +1,664 @@
+###### FATORIAL COMPLETO
+full_factorial <- function(factors,
+                            nlevels,
+                            levels,
+                            add_trats = NULL,
+                            reps = 4,
+                            design = c("CRD", "RCBD"),
+                            seed = 123,
+                            serpentine = TRUE,
+                            exp_name = "Experiment",
+                            fill_color = TRUE,
+                            text_size = 3,
+                            layout = c("default", "custom"),
+                            layout_allocation = NULL,
+                            locations = 1) {
+  # Função auxiliar
+  check_and_load <- function(pkg){
+    if (!requireNamespace(pkg, quietly = TRUE)) {
+      install.packages(pkg)
+    }
+    library(pkg, character.only = TRUE)
+  }
+  
+  # Lista de pacotes
+  pkgs <- c("dplyr", "FielDHub", "qrlabelr", "uuid", "cli")
+  
+  # Aplicar a função a cada pacote
+  invisible(lapply(pkgs, check_and_load))
+  
+  
+  cli::cli_h1("Iniciando experimento fatorial completo")
+  
+  layout <- match.arg(layout)
+  design <- match.arg(design)
+  
+  # Ajusta exp_name se necessário
+  if (length(exp_name) == 1) {
+    exp_name <- rep(exp_name, locations)
+  } else if (length(exp_name) != locations) {
+    cli::cli_abort("O argumento {.arg exp_name} deve ter comprimento 1 ou igual ao número de localidades.")
+  }
+  
+  if (!is.numeric(reps) || reps < 1 || length(reps) != 1) {
+    cli::cli_abort("O argumento {.arg reps} deve ser um número inteiro positivo.")
+  }
+  if (!is.logical(serpentine) || length(serpentine) != 1) {
+    cli::cli_abort("O argumento {.arg serpentine} deve ser TRUE ou FALSE.")
+  }
+  if (!is.logical(fill_color) || length(fill_color) != 1) {
+    cli::cli_abort("O argumento {.arg fill_color} deve ser TRUE ou FALSE.")
+  }
+  if (!is.numeric(text_size) || text_size <= 0) {
+    cli::cli_abort("O argumento {.arg text_size} deve ser um número positivo.")
+  }
+  
+  FACTORS <- rep(factors, nlevels)
+  if (length(levels) != length(FACTORS)) {
+    cli::cli_abort(c("O produto do número de níveis {.val {nlevels}} não bate.",
+                     "i" = "Número de níveis: {length(FACTORS)}",
+                     "x" = "Níveis fornecidos: {length(levels)}"))
+  }
+  
+  get_design <- function(loc, loc_name){
+    data_factorial <- data.frame(FACTOR = FACTORS, LEVEL = levels)
+    expdes <- switch(design, CRD = 1, RCBD = 2)
+    
+    fullFact2 <- FielDHub::full_factorial(
+      setfactors = NULL,
+      reps = reps,
+      type = expdes,
+      seed = seed + loc,
+      data = data_factorial,
+      locationNames = loc_name
+    )
+    
+    fieldbook <- fullFact2$fieldBook |> 
+      dplyr::mutate(REP = as.integer(as.character(REP)))
+    
+    # Adiciona tratamentos extras
+    if (!is.null(add_trats)) {
+      ntrats <- prod(nlevels) + length(add_trats)
+      factor_cols <- grep("^FACTOR_", names(fieldbook), value = TRUE)
+      
+      add_rows <- purrr::map_dfr(add_trats, function(trat) {
+        tibble_row <- as.list(setNames(rep(trat, length(factor_cols)), factor_cols))
+        tibble_row$TRT_COMB <- trat
+        tibble_row$REP <- seq_len(reps)
+        tibble_row <- as.data.frame(tibble_row)
+        tibble_row[rep(seq_len(nrow(tibble_row)), each = 1), ]
+      })
+      
+      base_rows <- fieldbook[1:(length(add_trats) * reps), ]
+      add_rows <- dplyr::bind_cols(
+        base_rows[, !names(base_rows) %in% c(factor_cols, "TRT_COMB", "REP")],
+        add_rows
+      )
+      
+      if (expdes == 1) {
+        fieldbook <- dplyr::bind_rows(fieldbook, add_rows) |>
+          dplyr::ungroup() |>
+          dplyr::slice_sample(n = nrow(fieldbook) + nrow(add_rows)) |>
+          dplyr::mutate(PLOT = dplyr::row_number())
+      } else {
+        fieldbook <- dplyr::bind_rows(fieldbook, add_rows) |>
+          dplyr::arrange(REP) |>
+          dplyr::group_by(REP) |>
+          dplyr::slice_sample(n = prod(nlevels) + length(add_trats)) |>
+          dplyr::ungroup() |>
+          dplyr::mutate(PLOT = dplyr::row_number())
+      }
+    }
+    
+    ntrats_total <- prod(nlevels) + if (!is.null(add_trats)) length(add_trats) else 0
+    
+    generate_plot <- function(layout_df) {
+      fieldbook_layout <- fieldbook |>
+        dplyr::mutate(
+          UNIQUE_ID = uuid::UUIDgenerate(n = nrow(fieldbook)),
+          ROW = layout_df$ROW,
+          COL = layout_df$COL,
+          LOCATION = loc_name,
+          .before = 1
+        ) |>
+        dplyr::select(-ID)
+      
+      if (serpentine) {
+        cli::cli_alert_info("Transformando o layout em serpentina...")
+        fieldbook_layout <- fieldbook_layout |>
+          dplyr::group_by(LOCATION, ROW) |>
+          dplyr::arrange(ifelse(ROW %% 2 == 0, dplyr::desc(COL), COL), .by_group = TRUE) |>
+          dplyr::ungroup() |>
+          dplyr::mutate(PLOT = dplyr::row_number())
+      }
+      
+      row_max <- max(fieldbook_layout$ROW)
+      block_sep <- switch(layout,
+                          default = seq(1.5, row_max - 0.5, by = 1),
+                          custom  = seq(max(fieldbook_layout$ROW) / reps + 0.5, row_max - 0.5, by = max(fieldbook_layout$ROW) / reps),
+                          auto    = {
+                            block_height <- max(table(fieldbook_layout$ROW))
+                            seq(block_height + 0.5, row_max - 0.5, by = block_height)
+                          })
+      
+      caption_text <- glue::glue("Local: {loc_name}. Delineamento: {design}. Layout: {layout}. Tratamentos: {ntrats_total}. Repetições: {reps}.")
+      
+      plot <- ggplot2::ggplot(fieldbook_layout, ggplot2::aes(COL, ROW)) +
+        {if (fill_color) ggplot2::geom_tile(ggplot2::aes(fill = TRT_COMB), color = "black")
+          else ggplot2::geom_tile(fill = "gray", color = "black")} +
+        ggplot2::geom_text(ggplot2::aes(label = TRT_COMB), size = text_size) +
+        ggplot2::geom_hline(yintercept = block_sep, linewidth = 1.2, color = "black") +
+        ggplot2::scale_x_continuous(expand = ggplot2::expansion(0), position = "top") +
+        ggplot2::scale_y_reverse(expand = ggplot2::expansion(0)) +
+        ggplot2::labs(title = loc_name, x = "Coluna", y = "Linha", caption = caption_text) +
+        ggplot2::theme_minimal()
+      
+      cli::cli_alert_success("Delineamento de {.val {loc_name}} gerado com sucesso.")
+      list(fieldbook = fieldbook_layout, fieldmap = plot)
+    }
+    
+    if (layout == "custom") {
+      if (is.null(layout_allocation) || length(layout_allocation) != 2) {
+        cli::cli_abort("Você deve fornecer um vetor de dois elementos para {.arg layout_allocation}.")
+      }
+      nrow <- layout_allocation[1]
+      ncol <- layout_allocation[2]
+      ntrats_custom <- nrow * ncol
+      if (ntrats_total > ntrats_custom) {
+        cli::cli_abort("O número de tratamentos ({.val {ntrats_total}}) é maior que o layout customizado ({.val {ntrats_custom}}).")
+      }
+      tratnumb <- c(1:ntrats_total, rep(NA, nrow * ncol - ntrats_total))
+      idx <- matrix(tratnumb, nrow = nrow, ncol = ncol, byrow = TRUE)
+      if (serpentine && nrow > 1) {
+        for (i in seq(2, nrow, by = 2)) idx[i, ] <- rev(idx[i, ])
+      }
+      layout_df_base <- data.frame(
+        ROW = rep(seq_len(nrow), each = ncol),
+        COL = rep(seq_len(ncol), times = nrow)
+      )
+      layout_df_base <- layout_df_base[!is.na(as.vector(t(idx))), , drop = FALSE]
+      layout_df <- dplyr::bind_rows(
+        purrr::map(seq_len(reps), function(r) {
+          df <- layout_df_base
+          df$ROW <- df$ROW + (r - 1) * nrow
+          df
+        })
+      )
+    } else {
+      layout_df <- data.frame(
+        ROW = rep(seq_len(reps), each = ntrats_total),
+        COL = rep(seq_len(ntrats_total), times = reps)
+      )
+    }
+    
+    generate_plot(layout_df)
+  }
+  
+  # Geração para todas as localidades
+  all_results <- purrr::map2(seq_len(locations), exp_name, get_design)
+  
+  fieldbook_all <- dplyr::bind_rows(purrr::map(all_results, "fieldbook"))
+  fieldmaps_all <- purrr::map(all_results, "fieldmap")
+  
+  return(list(fieldbook = fieldbook_all, fieldmap = fieldmaps_all))
+}
+
+##### PARCELA SUBDIVIDIDA
+split_plot <- function(wholeplot,
+                        subplot,
+                        reps = 4,
+                        design = c("CRD", "RCBD"),
+                        seed = 123,
+                        serpentine = TRUE,
+                        exp_name = "Experiment",
+                        fill_color = TRUE,
+                        text_size = 3,
+                        locations = 1) {
+  # Função auxiliar
+  check_and_load <- function(pkg){
+    if (!requireNamespace(pkg, quietly = TRUE)) {
+      install.packages(pkg)
+    }
+    library(pkg, character.only = TRUE)
+  }
+  
+  # Lista de pacotes
+  pkgs <- c("dplyr", "FielDHub", "qrlabelr", "uuid", "cli")
+  
+  # Aplicar a função a cada pacote
+  invisible(lapply(pkgs, check_and_load))
+  
+  cli::cli_h1("Iniciando experimento em parcelas subdivididas")
+  
+  design <- match.arg(design)
+  
+  if (length(exp_name) == 1) {
+    exp_name <- rep(exp_name, locations)
+  } else if (length(exp_name) != locations) {
+    cli::cli_abort("O argumento {.arg exp_name} deve ter comprimento 1 ou igual ao número de localidades.")
+  }
+  
+  if (!is.numeric(reps) || length(reps) != 1 || reps < 1) {
+    cli::cli_abort("O argumento {.arg reps} deve ser um número inteiro positivo.")
+  }
+  if (!is.logical(serpentine)) {
+    cli::cli_abort("O argumento {.arg serpentine} deve ser TRUE ou FALSE.")
+  }
+  if (!is.logical(fill_color)) {
+    cli::cli_abort("O argumento {.arg fill_color} deve ser TRUE ou FALSE.")
+  }
+  if (!is.numeric(text_size) || text_size <= 0) {
+    cli::cli_abort("O argumento {.arg text_size} deve ser um número positivo.")
+  }
+  
+  get_design <- function(loc, loc_name) {
+    ntrats <- length(subplot) * length(wholeplot)
+    
+    sp <- subplot
+    wp <- wholeplot
+    
+    if (length(wp) > length(sp)) {
+      sp <- c(sp, rep(NA, length(wp) - length(sp)))
+    } else if (length(wp) < length(sp)) {
+      wp <- c(wp, rep(NA, length(sp) - length(wp)))
+    }
+    
+    datasp <- data.frame(WHOLE_PLOT = wp, SUB_PLOT = sp)
+    expdes <- switch(design, CRD = 1, RCBD = 2)
+    
+    cli::cli_alert_info("Criando delineamento split-plot para {.val {loc_name}}...")
+    
+    fullFact2 <- FielDHub::split_plot(
+      reps = reps,
+      type = expdes,
+      seed = seed + loc,
+      data = datasp,
+      locationNames = loc_name
+    )
+    
+    fieldbook <- fullFact2$fieldBook |>
+      dplyr::mutate(REP = as.integer(as.character(REP)))
+    
+    REPVAL <- if (design == "CRD") rep(seq_len(reps), each = ntrats) else fieldbook$REP
+    
+    fieldbook <- fieldbook |>
+      dplyr::mutate(
+        UNIQUE_ID = uuid::UUIDgenerate(n = nrow(fieldbook)),
+        ROW = as.numeric(REPVAL),
+        COL = rep(seq_len(nrow(fieldbook) / reps), reps),
+        LOCATION = loc_name,
+        .before = 1
+      )
+    
+    if (serpentine) {
+      cli::cli_alert_info("Aplicando layout serpentina...")
+      fieldbook <- fieldbook |>
+        dplyr::group_by(LOCATION, ROW) |>
+        dplyr::arrange(ifelse(ROW %% 2 == 0, dplyr::desc(COL), COL), .by_group = TRUE) |>
+        dplyr::ungroup()
+    }
+    
+    row_max <- max(fieldbook$ROW)
+    block_sep <- seq(1.5, row_max - 0.5, by = 1)
+    
+    cli::cli_alert_info("Gerando mapa do campo para {.val {loc_name}}...")
+    
+    p <- ggplot2::ggplot(fieldbook, aes(COL, ROW)) +
+      {if(fill_color) ggplot2::geom_tile(aes(fill = WHOLE_PLOT), color = "black")
+        else ggplot2::geom_tile(fill = "gray", color = "black")} +
+      ggplot2::geom_text(aes(label = paste0(WHOLE_PLOT, "\n", SUB_PLOT)), size = text_size) +
+      ggplot2::geom_hline(yintercept = block_sep, linewidth = 1.2, color = "black") +
+      ggplot2::scale_x_continuous(expand = ggplot2::expansion(0), breaks = 1:max(fieldbook$COL),
+                                  position = "top") +
+      ggplot2::scale_y_reverse(expand = ggplot2::expansion(0), breaks = 1:reps) +
+      ggplot2::labs(title = loc_name, x = "Coluna", y = "Linha") +
+      ggplot2::theme_minimal()
+    
+    cli::cli_alert_success("Delineamento de {.val {loc_name}} gerado com sucesso.")
+    list(fieldbook = fieldbook, fieldmap = p)
+  }
+  
+  # Gera resultados para cada localidade
+  all_results <- purrr::map2(seq_len(locations), exp_name, get_design)
+  
+  fieldbook_all <- dplyr::bind_rows(purrr::map(all_results, "fieldbook"))
+  fieldmaps_all <- purrr::map(all_results, "fieldmap")
+  
+  cli::cli_h2("Experimento concluído com sucesso.")
+  return(list(fieldbook = fieldbook_all, fieldmap = fieldmaps_all))
+}
+
+##### UNIFATORIAL
+
+
+unifatorial <- function(trats,
+                        reps = 4,
+                        design = c("CRD", "RCBD"),
+                        seed = 123,
+                        serpentine = TRUE,
+                        exp_name = "Experiment",
+                        fill_color = TRUE,
+                        text_size = 3,
+                        layout = c("default", "custom"),
+                        layout_allocation = NULL,
+                        locations = 1) {
+  # Função auxiliar
+  check_and_load <- function(pkg){
+    if (!requireNamespace(pkg, quietly = TRUE)) {
+      install.packages(pkg)
+    }
+    library(pkg, character.only = TRUE)
+  }
+  
+  # Lista de pacotes
+  pkgs <- c("dplyr", "FielDHub", "qrlabelr", "uuid", "cli")
+  
+  # Aplicar a função a cada pacote
+  invisible(lapply(pkgs, check_and_load))
+  
+  cli::cli_h1("Iniciando experimento unifatorial")
+  
+  design <- match.arg(design)
+  layout <- match.arg(layout)
+  
+  if (length(exp_name) == 1) {
+    exp_name <- rep(exp_name, locations)
+  } else if (length(exp_name) != locations) {
+    cli::cli_abort("O argumento {.arg exp_name} deve ter comprimento 1 ou igual ao número de localidades.")
+  }
+  
+  if (!is.numeric(reps) || reps < 1 || length(reps) != 1) {
+    cli::cli_abort("O argumento {.arg reps} deve ser um número inteiro positivo.")
+  }
+  
+  if (!is.logical(serpentine) || length(serpentine) != 1) {
+    cli::cli_abort("O argumento {.arg serpentine} deve ser TRUE ou FALSE.")
+  }
+  
+  if (!is.logical(fill_color) || length(fill_color) != 1) {
+    cli::cli_abort("O argumento {.arg fill_color} deve ser TRUE ou FALSE.")
+  }
+  
+  if (!is.numeric(text_size) || text_size <= 0) {
+    cli::cli_abort("O argumento {.arg text_size} deve ser um número positivo.")
+  }
+  
+  get_design <- function(loc, loc_name) {
+    cli::cli_alert_info("Criando delineamento {.val {design}} para {.val {loc_name}} com {.val {reps}} repetições...")
+    
+    fieldbook <- if (design == "CRD") {
+      FielDHub::CRD(t = trats, reps = reps, seed = seed + loc, locationName = loc_name)$fieldBook
+    } else {
+      FielDHub::RCBD(t = trats, reps = reps, seed = seed + loc, locationNames = loc_name)$fieldBook
+    } |> 
+      dplyr::mutate(REP = as.integer(as.character(REP)))
+    
+    ntrats <- length(trats)
+    
+    generate_plot <- function(layout_df) {
+      fieldbook_layout <- 
+        fieldbook |>
+        dplyr::mutate(
+          UNIQUE_ID = uuid::UUIDgenerate(n = nrow(fieldbook)),
+          ROW = layout_df$ROW,
+          COL = layout_df$COL,
+          LOCATION = loc_name,
+          .before = 1
+        ) |> 
+        dplyr::ungroup() |>
+        dplyr::mutate(PLOT = dplyr::row_number()) |> 
+        dplyr::select(-ID)
+      
+      if (serpentine) {
+        cli::cli_alert_info("Aplicando layout serpentina...")
+        fieldbook_layout <- 
+          fieldbook_layout |>
+          dplyr::group_by(LOCATION, ROW) |>
+          dplyr::arrange(ifelse(ROW %% 2 == 0, dplyr::desc(COL), COL), .by_group = TRUE) |>
+          dplyr::ungroup() |>
+          dplyr::mutate(PLOT = dplyr::row_number())
+      }
+      
+      row_max <- max(fieldbook_layout$ROW)
+      block_sep <- switch(layout,
+                          default = seq(1.5, row_max - 0.5, by = 1),
+                          custom  = seq(layout_allocation[1] + 0.5, row_max - 0.5, by = layout_allocation[1]))
+      
+      p <- ggplot2::ggplot(fieldbook_layout, ggplot2::aes(COL, ROW)) +
+        {if (fill_color)
+          ggplot2::geom_tile(ggplot2::aes(fill = TREATMENT), color = "black")
+          else
+            ggplot2::geom_tile(fill = "gray", color = "black")} +
+        ggplot2::geom_text(ggplot2::aes(label = TREATMENT), size = text_size) +
+        ggplot2::geom_hline(yintercept = block_sep, linewidth = 1.2, color = "black") +
+        ggplot2::scale_x_continuous(expand = ggplot2::expansion(0), position = "top", breaks = 1:max(fieldbook_layout$COL)) +
+        ggplot2::scale_y_reverse(expand = ggplot2::expansion(0), breaks = 1:max(fieldbook_layout$ROW)) +
+        ggplot2::labs(title = loc_name, x = "Coluna", y = "Linha") +
+        ggplot2::theme_minimal()
+      
+      cli::cli_alert_success("Experimento {.val {loc_name}} concluído com sucesso.")
+      list(fieldbook = fieldbook_layout, fieldmap = p)
+    }
+    
+    if (layout == "custom") {
+      if (is.null(layout_allocation) || length(layout_allocation) != 2) {
+        cli::cli_abort("Você deve fornecer um vetor de dois elementos para {.arg layout_allocation}.")
+      }
+      nrow <- layout_allocation[1]
+      ncol <- layout_allocation[2]
+      nparc <- nrow * ncol
+      
+      ntrats_total <- length(trats)
+      if (ntrats_total > nparc) {
+        cli::cli_abort("O número de tratamentos ({.val {ntrats_total}}) é maior que o número de parcelas no layout ({.val {nparc}}).")
+      }
+      
+      tratnumb <- c(1:ntrats_total, rep(NA, nparc - ntrats_total))
+      idx <- matrix(tratnumb, nrow = nrow, ncol = ncol, byrow = TRUE)
+      
+      if (serpentine && nrow > 1) {
+        for (i in seq(2, nrow, by = 2)) {
+          idx[i, ] <- rev(idx[i, ])
+        }
+      }
+      
+      layout_df_base <- data.frame(
+        ROW = rep(seq_len(nrow), each = ncol),
+        COL = rep(seq_len(ncol), times = nrow)
+      )
+      
+      layout_df_base <- layout_df_base[!is.na(as.vector(t(idx))), , drop = FALSE]
+      n_layout_rows <- nrow
+      
+      layout_df <- dplyr::bind_rows(
+        purrr::map(seq_len(reps), function(r) {
+          df <- layout_df_base
+          df$ROW <- df$ROW + (r - 1) * n_layout_rows
+          df
+        })
+      )
+      
+      return(generate_plot(layout_df))
+    } else {
+      layout_df <- data.frame(
+        ROW = rep(seq_len(reps), each = length(trats)),
+        COL = rep(seq_len(length(trats)), times = reps)
+      )
+      return(generate_plot(layout_df))
+    }
+  }
+  
+  all_results <- purrr::map2(seq_len(locations), exp_name, get_design)
+  fieldbook_all <- dplyr::bind_rows(purrr::map(all_results, "fieldbook"))
+  fieldmaps_all <- purrr::map(all_results, "fieldmap")
+  
+  return(list(fieldbook = fieldbook_all, fieldmap = fieldmaps_all))
+}
+
+##### BLOCOS AUMENTADOS
+augmented <- function(lines,
+                      checks,
+                      blocks = 4,
+                      seed = 123,
+                      serpentine = TRUE,
+                      exp_name = "Experiment",
+                      fill_color = TRUE,
+                      text_size = 3,
+                      layout = c("default", "custom"),
+                      layout_allocation = NULL,
+                      locations = 1) {
+  
+  # Função auxiliar
+  check_and_load <- function(pkg){
+    if (!requireNamespace(pkg, quietly = TRUE)) {
+      install.packages(pkg)
+    }
+    library(pkg, character.only = TRUE)
+  }
+  
+  # Lista de pacotes
+  pkgs <- c("dplyr", "FielDHub", "qrlabelr", "uuid", "cli")
+  
+  # Aplicar a função a cada pacote
+  invisible(lapply(pkgs, check_and_load))
+  
+  cli::cli_h1("Iniciando experimento em blocos aumentados")
+  layout <- match.arg(layout)
+  
+  if (!is.numeric(blocks) || blocks < 1 || length(blocks) != 1) {
+    cli::cli_abort("O argumento {.arg blocks} deve ser um número inteiro positivo.")
+  }
+  if (!is.logical(serpentine)) {
+    cli::cli_abort("O argumento {.arg serpentine} deve ser TRUE ou FALSE.")
+  }
+  if (!is.logical(fill_color)) {
+    cli::cli_abort("O argumento {.arg fill_color} deve ser TRUE ou FALSE.")
+  }
+  if (!is.numeric(text_size) || text_size <= 0) {
+    cli::cli_abort("O argumento {.arg text_size} deve ser um número positivo.")
+  }
+  if (length(exp_name) == 1) {
+    exp_name <- rep(exp_name, locations)
+  } else if (length(exp_name) != locations) {
+    cli::cli_abort("O argumento {.arg exp_name} deve ter comprimento 1 ou igual ao número de localidades.")
+  }
+  
+  get_design <- function(loc, loc_name) {
+    cli::cli_alert_info("Gerando delineamento para {.val {loc_name}}...")
+    
+    trats <- c(checks, lines)
+    treatment_list <- data.frame(list(ENTRY = 1:length(trats), NAME = trats))
+    
+    ARCBD2 <- RCBD_augmented(
+      lines = length(lines),
+      checks = length(checks),
+      b = blocks,
+      seed = seed + loc,
+      locationNames = loc_name,
+      data = treatment_list
+    )
+    
+    info <- ARCBD2$infoDesign
+    fieldbook <- ARCBD2$fieldBook |>
+      dplyr::select(-c(ID, COLUMN, EXPT, YEAR))
+    
+    generate_plot <- function(layout_df) {
+      fieldbook_layout <- 
+        fieldbook |>
+        dplyr::mutate(
+          UNIQUE_ID = uuid::UUIDgenerate(n = nrow(fieldbook)),
+          ROW = layout_df$ROW,
+          COL = layout_df$COL,
+          LOCATION = loc_name,
+          .before = 1
+        ) |>
+        dplyr::ungroup() |>
+        dplyr::mutate(PLOT = dplyr::row_number()) |>
+        dplyr::relocate(LOCATION, ROW, COL, .before = 2)
+      
+      if (serpentine) {
+        cli::cli_alert_info("Aplicando layout serpentina...")
+        fieldbook_layout <- 
+          fieldbook_layout |>
+          dplyr::group_by(LOCATION, ROW) |>
+          dplyr::arrange(ifelse(ROW %% 2 == 0, dplyr::desc(COL), COL), .by_group = TRUE) |>
+          dplyr::ungroup() |>
+          dplyr::mutate(PLOT = dplyr::row_number())
+      }
+      
+      row_max <- max(fieldbook_layout$ROW)
+      block_sep <- switch(layout,
+                          default = seq(1.5, row_max - 0.5, by = 1),
+                          custom  = seq(layout_allocation[1] + 0.5, row_max - 0.5, by = layout_allocation[1])
+      )
+      
+      p <- ggplot2::ggplot(fieldbook_layout, ggplot2::aes(COL, ROW)) +
+        {if (fill_color)
+          ggplot2::geom_tile(ggplot2::aes(fill = factor(ROW)), color = "black")
+          else
+            ggplot2::geom_tile(fill = "gray", color = "black")} +
+        ggplot2::geom_text(ggplot2::aes(label = TREATMENT), size = text_size) +
+        ggplot2::geom_hline(yintercept = block_sep, linewidth = 1.2, color = "black") +
+        ggplot2::scale_x_continuous(expand = ggplot2::expansion(0), position = "top",
+                                    breaks = 1:max(fieldbook_layout$COL)) +
+        ggplot2::scale_y_reverse(expand = ggplot2::expansion(0), breaks = 1:max(fieldbook_layout$ROW)) +
+        ggplot2::labs(title = loc_name, x = "Coluna", y = "Linha") +
+        ggplot2::theme_minimal()
+      
+      cli::cli_alert_success("Delineamento gerado para {.val {loc_name}}.")
+      list(fieldbook = fieldbook_layout, fieldmap = p)
+    }
+    
+    if (layout == "custom") {
+      if (is.null(layout_allocation) || length(layout_allocation) != 2) {
+        cli::cli_abort("Você deve fornecer um vetor de dois elementos para {.arg layout_allocation}.")
+      }
+      nrow <- layout_allocation[1]
+      ncol <- layout_allocation[2]
+      nparc <- nrow * ncol
+      ntrats_total <- ARCBD2$infoDesign$columns_within_blocks
+      
+      if (ntrats_total > nparc) {
+        cli::cli_abort("O número de tratamentos ({.val {ntrats_total}}) é maior que o número de parcelas no layout ({.val {nparc}}).")
+      }
+      
+      tratnumb <- c(1:ntrats_total, rep(NA, nparc - ntrats_total))
+      idx <- matrix(tratnumb, nrow = nrow, ncol = ncol, byrow = TRUE)
+      
+      if (serpentine && nrow > 1) {
+        for (i in seq(2, nrow, by = 2)) {
+          idx[i, ] <- rev(idx[i, ])
+        }
+      }
+      
+      layout_df_base <- data.frame(
+        ROW = rep(seq_len(nrow), each = ncol),
+        COL = rep(seq_len(ncol), times = nrow)
+      )
+      
+      layout_df_base <- layout_df_base[!is.na(as.vector(t(idx))), , drop = FALSE]
+      n_layout_rows <- nrow
+      layout_df <- dplyr::bind_rows(
+        purrr::map(seq_len(blocks), function(r) {
+          df <- layout_df_base
+          df$ROW <- df$ROW + (r - 1) * n_layout_rows
+          df
+        })
+      )
+    } else {
+      ntrats <- nrow(fieldbook) / blocks
+      layout_df <- data.frame(
+        ROW = rep(seq_len(blocks), each = ntrats),
+        COL = rep(seq_len(ntrats), times = blocks)
+      )
+    }
+    
+    generate_plot(layout_df)
+  }
+  
+  all_results <- purrr::map2(seq_len(locations), exp_name, get_design)
+  fieldbook_all <- dplyr::bind_rows(purrr::map(all_results, "fieldbook"))
+  fieldmaps_all <- purrr::map(all_results, "fieldmap")
+  
+  return(list(fieldbook = fieldbook_all, fieldmap = fieldmaps_all))
+}
