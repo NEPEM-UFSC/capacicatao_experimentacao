@@ -33,6 +33,8 @@ library(FielDHub)
 library(qrlabelr)
 library(uuid)
 library(cli)
+library(rio)
+
 ```
 
 # Funções auxiliares
@@ -44,56 +46,93 @@ source("funcoes_planejamento.R")
 
 # Unifatorial
 ## Caderno de campo
+```{r}
+trats <- c("OLIVIA", "SOREX", "NEPEM", "HERMES", "T1", "T2")
+
+croqui_uni <- 
+  unifatorial(trats = trats,
+              reps = 3,
+              design = "RCBD",
+              layout = "custom",
+              layout_allocation = c(2, 3),
+              exp_name = "Grande teste")
+croqui_uni$fieldbook
+export(croqui_uni$fieldbook, "caderno_campo_uni.csv")
+
+```
+
+## Croqui
+```{r}
+croqui_uni$fieldmap
+
+ggsave("croqui_exp.pdf",
+       width = 7,
+       height = 4)
+```
+
 
 ## Etiquetas
 
 
 ```{r}
-# qrlabelr::gp_label(dat = as.data.frame(croqui$fieldbook),
-#                    # Top left 1
-#                    top_left_txt1 = 'Dose:',
-#                    top_left_id1 = 'TREATMENT',
-#                    # Top left 2
-#                    top_left_txt2 = 'Rep:',
-#                    top_left_id2 = 'REP',
-#                    # Top right 1
-#                    # top_right_txt1 = 'Rep:',
-#                    # top_right_id1 = 'REP',
-#                    # Top right 2
-#                    # top_right_txt2 = 'Rep:',
-#                    # top_right_id2 = 'REP',
-#                    # Bottom left 1
-#                    bottom_left_txt1 = "UUID:",
-#                    bottom_left_id1 = "UNIQUE_ID",
-#                    # Bottom left 2
-#                    # bottom_left_txt2 = "Trt:",
-#                    # bottom_left_id2 = "TRT_COMB",
-#                    # Center 1
-#                    center_right_txt1 = "Vaso:",
-#                    center_right_id1 = "PLOT",
-#                    # Center 2
-#                    center_right_txt2 = "Protocolo:",
-#                    center_right_id2 = "LOCATION",
-#                    # Center 3
-#                    # center_right_txt3 = "Col",
-#                    # center_right_id3 = "COLUMN",
-#                    filename = "test.pdf",
-#                    # Page size
-#                    page_wdt = 8.27,
-#                    page_hgt = 11.72,
-#                    top_mar = 0,
-#                    bot_mar = 0,
-#                    left_mar = 0.25,
-#                    right_mar = 0.25,
-#                    # Layout
-#                    numrow = 9,
-#                    numcol = 3,
-#                    font_sz = 10,
-#                    rname = "Olivoto",
-#                    get_unique_id = "custom",
-#                    unique_id =  "UNIQUE_ID",
-#                    family = "sans")
+qrlabelr::gp_label(dat = as.data.frame(croqui_uni$fieldbook),
+                   # Top left 1
+                   top_left_txt1 = 'Gen:',
+                   top_left_id1 = 'TREATMENT',
+                   # Top left 2
+                   top_left_txt2 = 'Linha:',
+                   top_left_id2 = 'ROW',
+                   # Top right 1
+                   # top_right_txt1 = 'Rep:',
+                   # top_right_id1 = 'REP',
+                   # Top right 2
+                   top_right_txt2 = 'Col:',
+                   top_right_id2 = 'COL',
+                   # Bottom left 1
+                   bottom_left_txt1 = "UUID:",
+                   bottom_left_id1 = "UNIQUE_ID",
+                   # Bottom left 2
+                   bottom_left_txt2 = "Ensaio:",
+                   bottom_left_id2 = "LOCATION",
+                   # Center 1
+                   center_right_txt1 = "Bloco:",
+                   center_right_id1 = "REP",
+                   # Center 2
+                   # center_right_txt2 = "Protocolo:",
+                   # center_right_id2 = "LOCATION",
+                   # Center 3
+                   # center_right_txt3 = "Col",
+                   # center_right_id3 = "COLUMN",
+                   filename = "test.pdf",
+                   # Page size
+                   page_wdt = 8.27,
+                   page_hgt = 11.72,
+                   top_mar = 0,
+                   bot_mar = 0,
+                   left_mar = 0.25,
+                   right_mar = 0.25,
+                   # Layout
+                   numrow = 9,
+                   numcol = 3,
+                   font_sz = 10,
+                   rname = "Olivoto",
+                   get_unique_id = "custom",
+                   unique_id =  "UNIQUE_ID",
+                   family = "sans")
 ```
+
+
+## Caderno a nível de planta
+```{r}
+croqui_planta <- 
+  croqui_uni$fieldbook |>
+  mutate(PLANTA = paste0("P", 1:5, collapse = ",")) |> 
+  separate_longer_delim(cols = PLANTA, delim = ",") |> 
+  mutate(UNIQUE_ID = UUIDgenerate(n = 90))
+
+export(croqui_planta, "caderno_planta.csv")
+```
+
 
 
 # Fatorial
@@ -103,3 +142,4 @@ source("funcoes_planejamento.R")
 ## Etiquetas
 
 
+# Análise de dados
