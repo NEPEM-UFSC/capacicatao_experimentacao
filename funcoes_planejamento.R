@@ -1,18 +1,84 @@
-###### FATORIAL COMPLETO
+#' Fatorial completo com caderno de campo e mapa de parcelas
+#'
+#' Gera um experimento fatorial completo (CRD/DIC ou RCBD/DBC) a partir da
+#' combinação de fatores e níveis, com opção de tratamentos adicionais,
+#' layout serpentina, geração de identificadores únicos reprodutíveis e
+#' retorno do caderno de campo consolidado e mapas de campo (ggplot) por
+#' localidade.
+#'
+#' @param factors `character`. Vetor com os nomes dos fatores (ex.: `c("A","B")`).
+#' @param nlevels `integer`. Número de níveis para cada fator, na mesma ordem de
+#'   `factors` (ex.: `c(2, 3)`).
+#' @param levels `character`. Vetor com os rótulos de todos os níveis, na
+#'   sequência dos fatores repetidos por seus respectivos níveis
+#'   (comprimento deve ser `sum(nlevels)` quando expandido como em `rep(factors, nlevels)`).
+#' @param add_trats `character` ou `NULL`. Nomes de tratamentos adicionais
+#'   (por exemplo, testemunhas) a serem incluídos além das combinações fatoriais.
+#' @param reps `integer` (>= 1). Número de repetições (blocos para RCBD; linhas
+#'   “pilhas” para CRD).
+#' @param design `character`. Delineamento: `"CRD"` (DIC) ou `"RCBD"` (DBC).
+#' @param seed `integer`. Semente para reprodutibilidade; é
+#'   incremental por localidade (`seed + índice_da_localidade`).
+#' @param serpentine `logical`. Se `TRUE`, aplica ordem “serpentina” por linha no
+#'   layout final.
+#' @param exp_year `character`. Ano do experimento (exibido no caderno de campo).
+#' @param exp_name `character`. Nome do experimento. Pode ser de comprimento 1
+#'   (reciclado para todas as localidades) ou de comprimento igual a `locations`.
+#' @param fill_color `logical`. Se `TRUE`, o mapa colore por `TRT_COMB`; caso
+#'   contrário, usa preenchimento cinza.
+#' @param text_size `numeric` (> 0). Tamanho do texto dos rótulos de parcela no mapa.
+#' @param layout `character`. `"default"` (matriz `reps x ntrats`),
+#'   `"custom"` (definido por `layout_allocation`).
+#' @param layout_allocation `numeric(2)` ou `NULL`. Quando `layout = "custom"`,
+#'   vetor `c(nrow, ncol)` com o número de linhas e colunas do layout
+#'   por repetição. Deve comportar `ntrats_total = prod(nlevels) + length(add_trats)`.
+#' @param namespace `character`. UUID namespace para gerar IDs estáveis via
+#'   `uuid::UUIDfromName()`.
+#' @param locations `integer` (>= 1). Número de localidades (experimentos
+#'   independentes) a serem geradas.
+#'
+#' @details
+#' A função é um invólucro de conveniência em torno de
+#' `FielDHub::full_factorial()`, adicionando:
+#' * Inclusão opcional de tratamentos extras (`add_trats`) com
+#'   reamostragem adequada por delineamento;
+#' * Geração de um layout (padrão ou customizado) com ou sem serpentina;
+#' * Criação de identificadores únicos e reprodutíveis por parcela
+#'   (`UNIQUE_ID`) considerando `ROW`, `COL`, `YEAR`,
+#'   `LOCATION`, `PLOT`, `REP` e `TRT_COMB`;
+#' * Produção de um *fieldbook* consolidado (todas as localidades) e
+#'   de mapas de campo (`ggplot`) por localidade.
+#'
+#' Regras e validações principais:
+#' * `FACTORS <- rep(factors, nlevels)` deve ter `length(levels)`
+#'   correspondente; caso contrário, a função aborta com mensagem do pacote `cli`.
+#' * Para `layout = "custom"`, `nrow * ncol` deve ser >= `ntrats_total`.
+#' * Em `design = "RCBD"`, a alocação é feita por bloco (`REP`).
+#'
+#' @return Uma `list` com dois componentes:
+#' * `fieldbook`: `data.frame/tibble` com as colunas de
+#'   identificação (`UNIQUE_ID`, `YEAR`, `LOCATION`, `ROW`,
+#'   `COL`, `PLOT`, `REP`, `TRT_COMB`, `FACTOR_*`, etc.).
+#' * `fieldmap`: `list` de objetos `ggplot` (um por
+#'   localidade) representando o mapa de campo.
+#'   
+#'   
 full_factorial <- function(factors,
-                            nlevels,
-                            levels,
-                            add_trats = NULL,
-                            reps = 4,
-                            design = c("CRD", "RCBD"),
-                            seed = 123,
-                            serpentine = TRUE,
-                            exp_name = "Experiment",
-                            fill_color = TRUE,
-                            text_size = 3,
-                            layout = c("default", "custom"),
-                            layout_allocation = NULL,
-                            locations = 1) {
+                           nlevels,
+                           levels,
+                           add_trats = NULL,
+                           reps = 4,
+                           design = c("CRD", "RCBD"),
+                           seed = 123,
+                           serpentine = TRUE,
+                           exp_year = format(Sys.Date(), "%Y"),
+                           exp_name = "Experiment",
+                           fill_color = TRUE,
+                           text_size = 3,
+                           layout = c("default", "custom"),
+                           layout_allocation = NULL,
+                           namespace = "7ac1a295-ef95-4f7c-8a35-3eed97cb256d",
+                           locations = 1) {
   # Função auxiliar
   check_and_load <- function(pkg){
     if (!requireNamespace(pkg, quietly = TRUE)) {
@@ -73,11 +139,13 @@ full_factorial <- function(factors,
       locationNames = loc_name
     )
     
-    fieldbook <- fullFact2$fieldBook |> 
+    fieldbook <- 
+      fullFact2$fieldBook |> 
       dplyr::mutate(REP = as.integer(as.character(REP)))
     
     # Adiciona tratamentos extras
     if (!is.null(add_trats)) {
+      cli_progress_step("Adicionando tratamentos adicionais...")
       ntrats <- prod(nlevels) + length(add_trats)
       factor_cols <- grep("^FACTOR_", names(fieldbook), value = TRUE)
       
@@ -113,18 +181,21 @@ full_factorial <- function(factors,
     ntrats_total <- prod(nlevels) + if (!is.null(add_trats)) length(add_trats) else 0
     
     generate_plot <- function(layout_df) {
-      fieldbook_layout <- fieldbook |>
+      fieldbook_layout <- 
+        fieldbook |>
         dplyr::mutate(
-          UNIQUE_ID = uuid::UUIDgenerate(n = nrow(fieldbook)),
           ROW = layout_df$ROW,
           COL = layout_df$COL,
+          YEAR = exp_year,
           LOCATION = loc_name,
           .before = 1
         ) |>
-        dplyr::select(-ID)
+        unite("FACTORS", ROW, COL, YEAR, LOCATION, PLOT, REP, TRT_COMB, remove = FALSE) |> 
+        mutate(UNIQUE_ID = uuid::UUIDfromName(namespace, FACTORS), .before = 1) |> 
+        dplyr::select(-c(ID, FACTORS))
       
       if (serpentine) {
-        cli::cli_alert_info("Transformando o layout em serpentina...")
+        cli::cli_progress_step("Transformando o layout em serpentina...")
         fieldbook_layout <- fieldbook_layout |>
           dplyr::group_by(LOCATION, ROW) |>
           dplyr::arrange(ifelse(ROW %% 2 == 0, dplyr::desc(COL), COL), .by_group = TRUE) |>
@@ -142,7 +213,7 @@ full_factorial <- function(factors,
                           })
       
       caption_text <- glue::glue("Local: {loc_name}. Delineamento: {design}. Layout: {layout}. Tratamentos: {ntrats_total}. Repetições: {reps}.")
-      
+      cli_progress_step("Gerando o caderno de campo...")
       plot <- ggplot2::ggplot(fieldbook_layout, ggplot2::aes(COL, ROW)) +
         {if (fill_color) ggplot2::geom_tile(ggplot2::aes(fill = TRT_COMB), color = "black")
           else ggplot2::geom_tile(fill = "gray", color = "black")} +
@@ -153,7 +224,6 @@ full_factorial <- function(factors,
         ggplot2::labs(title = loc_name, x = "Coluna", y = "Linha", caption = caption_text) +
         ggplot2::theme_minimal()
       
-      cli::cli_alert_success("Delineamento de {.val {loc_name}} gerado com sucesso.")
       list(fieldbook = fieldbook_layout, fieldmap = plot)
     }
     
@@ -167,6 +237,7 @@ full_factorial <- function(factors,
       if (ntrats_total > ntrats_custom) {
         cli::cli_abort("O número de tratamentos ({.val {ntrats_total}}) é maior que o layout customizado ({.val {ntrats_custom}}).")
       }
+      cli_progress_step("Customizando o layout...")
       tratnumb <- c(1:ntrats_total, rep(NA, nrow * ncol - ntrats_total))
       idx <- matrix(tratnumb, nrow = nrow, ncol = ncol, byrow = TRUE)
       if (serpentine && nrow > 1) {
@@ -203,17 +274,59 @@ full_factorial <- function(factors,
   return(list(fieldbook = fieldbook_all, fieldmap = fieldmaps_all))
 }
 
-##### PARCELA SUBDIVIDIDA
+
+
+
+#' Parcelas subdivididas com caderno de campo e mapa de parcelas
+#'
+#' Gera um experimento em parcelas subdivididas (split-plot) nos delineamentos
+#' CRD (DIC) ou RCBD (DBC), permitindo múltiplas localidades, layout serpentina,
+#' e exportação do caderno de campo consolidado e mapas de campo (`ggplot`).
+#'
+#' @param wholeplot `character`. Vetor com os níveis do fator da parcela principal.
+#' @param subplot `character`. Vetor com os níveis do fator da subparcela.
+#' @param reps `integer` (>= 1). Número de repetições (blocos para RCBD).
+#' @param design `character`. Delineamento: `"CRD"` (DIC) ou `"RCBD"` (DBC).
+#' @param seed `integer`. Semente para reprodutibilidade (incrementada por localidade).
+#' @param serpentine `logical`. Se `TRUE`, aplica ordem serpentina por linha no layout.
+#' @param exp_year `character`. Ano do experimento (exibido no caderno de campo).
+#' @param exp_name `character`. Nome do experimento. Pode ser único ou de comprimento igual a `locations`.
+#' @param namespace `character`. UUID namespace para gerar identificadores únicos com `uuid::UUIDfromName()`.
+#' @param fill_color `logical`. Se `TRUE`, colore o mapa de campo pelo fator da parcela principal (`WHOLE_PLOT`).
+#' @param text_size `numeric` (> 0). Tamanho do texto no mapa de campo.
+#' @param locations `integer` (>= 1). Número de localidades (experimentos independentes).
+#'
+#' @details
+#' A função é um invólucro de conveniência em torno de `FielDHub::split_plot()`, com:
+#' * Definição automática do delineamento a partir de `design`;
+#' * Alocação de parcelas principais (`WHOLE_PLOT`) e subparcelas (`SUB_PLOT`);
+#' * Criação de identificadores únicos e reprodutíveis (`UNIQUE_ID`) considerando
+#'   `YEAR`, `LOCATION`, `ROW`, `COL`, `PLOT`, `REP`, `TRT_COMB`;
+#' * Geração de mapas (`ggplot`) com rótulos `WHOLE_PLOT` e `SUB_PLOT`;
+#' * Opção de layout serpentina por linha.
+#'
+#' Regras principais:
+#' * `reps` deve ser um número inteiro positivo;
+#' * `exp_name` deve ter comprimento 1 ou ser igual a `locations`;
+#' * Para `design = "RCBD"`, a alocação considera blocos (`REP`).
+#'
+#' @return Uma `list` com:
+#' * `fieldbook`: `data.frame/tibble` com informações do experimento, incluindo
+#'   `WHOLE_PLOT`, `SUB_PLOT`, `TRT_COMB`, identificadores e coordenadas (`ROW`, `COL`);
+#' * `fieldmap`: lista de objetos `ggplot` (um por localidade), com o mapa de campo.
+#'
 split_plot <- function(wholeplot,
-                        subplot,
-                        reps = 4,
-                        design = c("CRD", "RCBD"),
-                        seed = 123,
-                        serpentine = TRUE,
-                        exp_name = "Experiment",
-                        fill_color = TRUE,
-                        text_size = 3,
-                        locations = 1) {
+                       subplot,
+                       reps = 4,
+                       design = c("CRD", "RCBD"),
+                       seed = 123,
+                       serpentine = TRUE,
+                       exp_year = format(Sys.Date(), "%Y"),
+                       exp_name = "Experiment",
+                       namespace = "7ac1a295-ef95-4f7c-8a35-3eed97cb256d",
+                       fill_color = TRUE,
+                       text_size = 3,
+                       locations = 1) {
   # Função auxiliar
   check_and_load <- function(pkg){
     if (!requireNamespace(pkg, quietly = TRUE)) {
@@ -266,7 +379,7 @@ split_plot <- function(wholeplot,
     datasp <- data.frame(WHOLE_PLOT = wp, SUB_PLOT = sp)
     expdes <- switch(design, CRD = 1, RCBD = 2)
     
-    cli::cli_alert_info("Criando delineamento split-plot para {.val {loc_name}}...")
+    cli::cli_progress_step("Criando delineamento split-plot para {.val {loc_name}}...")
     
     fullFact2 <- FielDHub::split_plot(
       reps = reps,
@@ -281,17 +394,21 @@ split_plot <- function(wholeplot,
     
     REPVAL <- if (design == "CRD") rep(seq_len(reps), each = ntrats) else fieldbook$REP
     
-    fieldbook <- fieldbook |>
+    fieldbook <- 
+      fieldbook |>
       dplyr::mutate(
-        UNIQUE_ID = uuid::UUIDgenerate(n = nrow(fieldbook)),
         ROW = as.numeric(REPVAL),
         COL = rep(seq_len(nrow(fieldbook) / reps), reps),
+        YEAR = exp_year,
         LOCATION = loc_name,
         .before = 1
-      )
+      ) |> 
+      unite("FACTORS", YEAR, LOCATION, ROW, COL, PLOT, REP, TRT_COMB, remove = FALSE) |> 
+      mutate(UNIQUE_ID = uuid::UUIDfromName(namespace, FACTORS), .before = 1) |> 
+      dplyr::select(-c(ID, FACTORS))
     
     if (serpentine) {
-      cli::cli_alert_info("Aplicando layout serpentina...")
+      cli::cli_progress_step("Aplicando layout serpentina...")
       fieldbook <- fieldbook |>
         dplyr::group_by(LOCATION, ROW) |>
         dplyr::arrange(ifelse(ROW %% 2 == 0, dplyr::desc(COL), COL), .by_group = TRUE) |>
@@ -301,7 +418,7 @@ split_plot <- function(wholeplot,
     row_max <- max(fieldbook$ROW)
     block_sep <- seq(1.5, row_max - 0.5, by = 1)
     
-    cli::cli_alert_info("Gerando mapa do campo para {.val {loc_name}}...")
+    cli::cli_progress_step("Gerando mapa do campo para {.val {loc_name}}...")
     
     p <- ggplot2::ggplot(fieldbook, aes(COL, ROW)) +
       {if(fill_color) ggplot2::geom_tile(aes(fill = WHOLE_PLOT), color = "black")
@@ -314,7 +431,6 @@ split_plot <- function(wholeplot,
       ggplot2::labs(title = loc_name, x = "Coluna", y = "Linha") +
       ggplot2::theme_minimal()
     
-    cli::cli_alert_success("Delineamento de {.val {loc_name}} gerado com sucesso.")
     list(fieldbook = fieldbook, fieldmap = p)
   }
   
@@ -328,18 +444,59 @@ split_plot <- function(wholeplot,
   return(list(fieldbook = fieldbook_all, fieldmap = fieldmaps_all))
 }
 
-##### UNIFATORIAL
 
 
+
+
+
+#' Experimento unifatorial com caderno de campo e mapa de parcelas
+#'
+#' Gera um experimento unifatorial (CRD/DIC ou RCBD/DBC) com múltiplas localidades,
+#' opção de layout serpentina, croqui (mapa em `ggplot`) e caderno de campo consolidado.
+#'
+#' @param trats `character`. Vetor com os tratamentos a serem testados.
+#' @param reps `integer` (>= 1). Número de repetições.
+#' @param design `character`. Delineamento: `"CRD"` (DIC) ou `"RCBD"` (DBC).
+#' @param seed `integer`. Semente para reprodutibilidade (incrementada por localidade).
+#' @param serpentine `logical`. Se `TRUE`, aplica ordem serpentina por linha no layout.
+#' @param exp_name `character`. Nome do experimento. Pode ser único ou de comprimento igual a `locations`.
+#' @param exp_year `character`. Ano do experimento (usado nas colunas do caderno de campo).
+#' @param fill_color `logical`. Se `TRUE`, colore o croqui pelos tratamentos.
+#' @param text_size `numeric` (> 0). Tamanho do texto exibido no croqui.
+#' @param layout `character`. `"default"` (matriz `reps x trats`) ou `"custom"` (definido por `layout_allocation`).
+#' @param namespace `character`. UUID namespace para gerar identificadores únicos com `uuid::UUIDfromName()`.
+#' @param layout_allocation `numeric(2)` ou `NULL`. Quando `layout = "custom"`, define `c(nrow, ncol)` do croqui.
+#' @param locations `integer` (>= 1). Número de localidades (experimentos independentes).
+#'
+#' @details
+#' A função é um invólucro em torno de `FielDHub::CRD()` e `FielDHub::RCBD()`, adicionando:
+#' * Identificadores únicos (`UNIQUE_ID`) por parcela;
+#' * Layout serpentina opcional;
+#' * Layout customizado (`nrow x ncol`) quando `layout = "custom"`;
+#' * Croqui em `ggplot` com cores e rótulos configuráveis;
+#' * Caderno de campo consolidado para todas as localidades.
+#'
+#' Regras e validações principais:
+#' * `reps` deve ser um inteiro positivo;
+#' * `exp_name` deve ter comprimento 1 ou igual a `locations`;
+#' * Para `layout = "custom"`, `nrow * ncol` deve ser >= número de tratamentos.
+#'
+#' @return Uma `list` com:
+#' * `fieldbook`: `data.frame/tibble` com identificadores, tratamentos e coordenadas (`ROW`, `COL`, etc.);
+#' * `fieldmap`: lista de objetos `ggplot` (um por localidade) representando o croqui do campo.
+#'
+#'
 unifatorial <- function(trats,
                         reps = 4,
                         design = c("CRD", "RCBD"),
                         seed = 123,
                         serpentine = TRUE,
                         exp_name = "Experiment",
+                        exp_year = format(Sys.Date(), "%Y"),
                         fill_color = TRUE,
                         text_size = 3,
                         layout = c("default", "custom"),
+                        namespace = "7ac1a295-ef95-4f7c-8a35-3eed97cb256d",
                         layout_allocation = NULL,
                         locations = 1) {
   # Função auxiliar
@@ -384,7 +541,8 @@ unifatorial <- function(trats,
   }
   
   get_design <- function(loc, loc_name) {
-    cli::cli_alert_info("Criando delineamento {.val {design}} para {.val {loc_name}} com {.val {reps}} repetições...")
+    # cli::cli_alert_info("Criando delineamento {.val {design}} para {.val {loc_name}} com {.val {reps}} repetições...")
+    cli::cli_progress_step("Criando delineamento {.val {design}} para {.val {loc_name}} com {.val {reps}} repetições...")
     
     fieldbook <- if (design == "CRD") {
       FielDHub::CRD(t = trats, reps = reps, seed = seed + loc, locationName = loc_name)$fieldBook
@@ -399,18 +557,20 @@ unifatorial <- function(trats,
       fieldbook_layout <- 
         fieldbook |>
         dplyr::mutate(
-          UNIQUE_ID = uuid::UUIDgenerate(n = nrow(fieldbook)),
           ROW = layout_df$ROW,
           COL = layout_df$COL,
+          YEAR = exp_year,
           LOCATION = loc_name,
           .before = 1
         ) |> 
         dplyr::ungroup() |>
         dplyr::mutate(PLOT = dplyr::row_number()) |> 
-        dplyr::select(-ID)
+        unite("FACTORS", YEAR, LOCATION, ROW, COL, PLOT, REP, TREATMENT, remove = FALSE) |> 
+        mutate(UNIQUE_ID = uuid::UUIDfromName(namespace, FACTORS), .before = 1) |> 
+        dplyr::select(-c(ID, FACTORS))
       
       if (serpentine) {
-        cli::cli_alert_info("Aplicando layout serpentina...")
+        cli::cli_progress_step("Aplicando layout serpentina...")
         fieldbook_layout <- 
           fieldbook_layout |>
           dplyr::group_by(LOCATION, ROW) |>
@@ -423,6 +583,8 @@ unifatorial <- function(trats,
       block_sep <- switch(layout,
                           default = seq(1.5, row_max - 0.5, by = 1),
                           custom  = seq(layout_allocation[1] + 0.5, row_max - 0.5, by = layout_allocation[1]))
+      cli::cli_progress_step("Gerando o croqui...")
+      caption_text <- glue::glue("Local: {loc_name}. Delineamento: {design}. Layout: {layout}. Tratamentos: {ntrats}. Repetições: {reps}.")
       
       p <- ggplot2::ggplot(fieldbook_layout, ggplot2::aes(COL, ROW)) +
         {if (fill_color)
@@ -433,7 +595,7 @@ unifatorial <- function(trats,
         ggplot2::geom_hline(yintercept = block_sep, linewidth = 1.2, color = "black") +
         ggplot2::scale_x_continuous(expand = ggplot2::expansion(0), position = "top", breaks = 1:max(fieldbook_layout$COL)) +
         ggplot2::scale_y_reverse(expand = ggplot2::expansion(0), breaks = 1:max(fieldbook_layout$ROW)) +
-        ggplot2::labs(title = loc_name, x = "Coluna", y = "Linha") +
+        ggplot2::labs(title = loc_name, x = "Coluna", y = "Linha",  caption = caption_text) +
         ggplot2::theme_minimal()
       
       cli::cli_alert_success("Experimento {.val {loc_name}} concluído com sucesso.")
@@ -452,7 +614,7 @@ unifatorial <- function(trats,
       if (ntrats_total > nparc) {
         cli::cli_abort("O número de tratamentos ({.val {ntrats_total}}) é maior que o número de parcelas no layout ({.val {nparc}}).")
       }
-      
+      cli::cli_progress_step("Customizando o layout...")
       tratnumb <- c(1:ntrats_total, rep(NA, nparc - ntrats_total))
       idx <- matrix(tratnumb, nrow = nrow, ncol = ncol, byrow = TRUE)
       
@@ -495,13 +657,56 @@ unifatorial <- function(trats,
   return(list(fieldbook = fieldbook_all, fieldmap = fieldmaps_all))
 }
 
-##### BLOCOS AUMENTADOS
+
+
+
+
+
+
+
+
+#' Delineamento em blocos aumentados com caderno de campo e croqui
+#'
+#' Gera um experimento em blocos aumentados (Augmented RCBD), permitindo múltiplas
+#' localidades, layout serpentina, croqui (mapa em `ggplot`) e caderno de campo
+#' consolidado.
+#'
+#' @param lines `character`. Vetor com os tratamentos candidatos (linhagens/novas entradas).
+#' @param checks `character`. Vetor com os tratamentos de checagem (testemunhas).
+#' @param blocks `integer` (>= 1). Número de blocos.
+#' @param seed `integer`. Semente para reprodutibilidade (incrementada por localidade).
+#' @param serpentine `logical`. Se `TRUE`, aplica ordem serpentina por linha no layout.
+#' @param exp_year `character`. Ano do experimento.
+#' @param exp_name `character`. Nome do experimento. Pode ser único ou de comprimento igual a `locations`.
+#' @param namespace `character`. UUID namespace para gerar identificadores únicos com `uuid::UUIDfromName()`.
+#' @param fill_color `logical`. Se `TRUE`, colore o croqui por fator (linha do bloco).
+#' @param text_size `numeric` (> 0). Tamanho do texto exibido no croqui.
+#' @param layout `character`. `"default"` (blocos em sequência) ou `"custom"` (definido por `layout_allocation`).
+#' @param layout_allocation `numeric(2)` ou `NULL`. Quando `layout = "custom"`, define `c(nrow, ncol)` do croqui.
+#' @param locations `integer` (>= 1). Número de localidades (experimentos independentes).
+#'
+#' @details
+#' A função é um invólucro em torno de `FielDHub::RCBD_augmented()`, adicionando:
+#' * Identificadores únicos (`UNIQUE_ID`) por parcela;
+#' * Layout serpentina opcional;
+#' * Layout customizado (`nrow x ncol`) quando `layout = "custom"`;
+#' * Croqui em `ggplot` com cores e rótulos configuráveis;
+#' * Caderno de campo consolidado para todas as localidades.
+#'
+#' Regras e validações principais:
+#' * `blocks` deve ser um inteiro positivo;
+#' * `exp_name` deve ter comprimento 1 ou igual a `locations`;
+#' * Para `layout = "custom"`, `nrow * ncol` deve ser >= número de parcelas por bloco.
+#'
+
 augmented <- function(lines,
                       checks,
                       blocks = 4,
                       seed = 123,
                       serpentine = TRUE,
+                      exp_year = format(Sys.Date(), "%Y"),
                       exp_name = "Experiment",
+                      namespace = "7ac1a295-ef95-4f7c-8a35-3eed97cb256d",
                       fill_color = TRUE,
                       text_size = 3,
                       layout = c("default", "custom"),
@@ -544,7 +749,7 @@ augmented <- function(lines,
   }
   
   get_design <- function(loc, loc_name) {
-    cli::cli_alert_info("Gerando delineamento para {.val {loc_name}}...")
+    cli::cli_progress_step("Gerando delineamento para {.val {loc_name}}...")
     
     trats <- c(checks, lines)
     treatment_list <- data.frame(list(ENTRY = 1:length(trats), NAME = trats))
@@ -559,7 +764,8 @@ augmented <- function(lines,
     )
     
     info <- ARCBD2$infoDesign
-    fieldbook <- ARCBD2$fieldBook |>
+    fieldbook <- 
+      ARCBD2$fieldBook |>
       dplyr::select(-c(ID, COLUMN, EXPT, YEAR))
     
     generate_plot <- function(layout_df) {
@@ -569,15 +775,19 @@ augmented <- function(lines,
           UNIQUE_ID = uuid::UUIDgenerate(n = nrow(fieldbook)),
           ROW = layout_df$ROW,
           COL = layout_df$COL,
+          YEAR = exp_year,
           LOCATION = loc_name,
           .before = 1
         ) |>
         dplyr::ungroup() |>
-        dplyr::mutate(PLOT = dplyr::row_number()) |>
+        dplyr::mutate(PLOT = dplyr::row_number()) |> 
+        unite("FACTORS", YEAR, LOCATION, ROW, COL, YEAR, PLOT, CHECKS, TREATMENT, remove = FALSE) |> 
+        mutate(UNIQUE_ID = uuid::UUIDfromName(namespace, FACTORS), .before = 1) |> 
+        dplyr::select(-FACTORS) |> 
         dplyr::relocate(LOCATION, ROW, COL, .before = 2)
       
       if (serpentine) {
-        cli::cli_alert_info("Aplicando layout serpentina...")
+        cli::cli_progress_step("Aplicando layout serpentina...")
         fieldbook_layout <- 
           fieldbook_layout |>
           dplyr::group_by(LOCATION, ROW) |>
@@ -591,7 +801,8 @@ augmented <- function(lines,
                           default = seq(1.5, row_max - 0.5, by = 1),
                           custom  = seq(layout_allocation[1] + 0.5, row_max - 0.5, by = layout_allocation[1])
       )
-      
+      caption_text <- glue::glue("Local: {loc_name}. Layout: {layout}. Lines: {length(lines)}. Checks: {length(checks)}.")
+      cli::cli_progress_step("Gerando o croqui...")
       p <- ggplot2::ggplot(fieldbook_layout, ggplot2::aes(COL, ROW)) +
         {if (fill_color)
           ggplot2::geom_tile(ggplot2::aes(fill = factor(ROW)), color = "black")
@@ -602,10 +813,9 @@ augmented <- function(lines,
         ggplot2::scale_x_continuous(expand = ggplot2::expansion(0), position = "top",
                                     breaks = 1:max(fieldbook_layout$COL)) +
         ggplot2::scale_y_reverse(expand = ggplot2::expansion(0), breaks = 1:max(fieldbook_layout$ROW)) +
-        ggplot2::labs(title = loc_name, x = "Coluna", y = "Linha") +
+        ggplot2::labs(title = loc_name, x = "Coluna", y = "Linha", caption = caption_text) +
         ggplot2::theme_minimal()
       
-      cli::cli_alert_success("Delineamento gerado para {.val {loc_name}}.")
       list(fieldbook = fieldbook_layout, fieldmap = p)
     }
     
@@ -621,7 +831,7 @@ augmented <- function(lines,
       if (ntrats_total > nparc) {
         cli::cli_abort("O número de tratamentos ({.val {ntrats_total}}) é maior que o número de parcelas no layout ({.val {nparc}}).")
       }
-      
+      cli::cli_progress_step("Customizando o layout...")
       tratnumb <- c(1:ntrats_total, rep(NA, nparc - ntrats_total))
       idx <- matrix(tratnumb, nrow = nrow, ncol = ncol, byrow = TRUE)
       
