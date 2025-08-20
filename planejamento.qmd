@@ -142,5 +142,4 @@ export(croqui_planta, "caderno_planta.csv")
 
 ## Etiquetas
 
-
 # Análise de dados
