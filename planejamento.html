@@ -134,12 +134,12 @@ background: #006699;
   <ul>
   <li><a href="#pacotes" id="toc-pacotes" class="nav-link active" data-scroll-target="#pacotes"><span class="header-section-number">1</span> Pacotes</a></li>
   <li><a href="#funções-auxiliares" id="toc-funções-auxiliares" class="nav-link" data-scroll-target="#funções-auxiliares"><span class="header-section-number">2</span> Funções auxiliares</a></li>
-  <li><a href="#unifatorial" id="toc-unifatorial" class="nav-link" data-scroll-target="#unifatorial"><span class="header-section-number">3</span> UNIFATORIAL</a>
+  <li><a href="#unifatorial" id="toc-unifatorial" class="nav-link" data-scroll-target="#unifatorial"><span class="header-section-number">3</span> Unifatorial</a>
   <ul class="collapse">
   <li><a href="#caderno-de-campo" id="toc-caderno-de-campo" class="nav-link" data-scroll-target="#caderno-de-campo"><span class="header-section-number">3.1</span> Caderno de campo</a></li>
   <li><a href="#etiquetas" id="toc-etiquetas" class="nav-link" data-scroll-target="#etiquetas"><span class="header-section-number">3.2</span> Etiquetas</a></li>
   </ul></li>
-  <li><a href="#fatorial" id="toc-fatorial" class="nav-link" data-scroll-target="#fatorial"><span class="header-section-number">4</span> FATORIAL</a>
+  <li><a href="#fatorial" id="toc-fatorial" class="nav-link" data-scroll-target="#fatorial"><span class="header-section-number">4</span> Fatorial</a>
   <ul class="collapse">
   <li><a href="#caderno-de-campo-1" id="toc-caderno-de-campo-1" class="nav-link" data-scroll-target="#caderno-de-campo-1"><span class="header-section-number">4.1</span> Caderno de campo</a></li>
   <li><a href="#etiquetas-1" id="toc-etiquetas-1" class="nav-link" data-scroll-target="#etiquetas-1"><span class="header-section-number">4.2</span> Etiquetas</a></li>
@@ -161,10 +161,11 @@ background: #006699;
 <details class="code-fold">
 <summary>Code</summary>
 <div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tidyverse)</span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(FielDHub)</span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(qrlabelr)</span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(uuid)</span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(cli)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(Rcpp)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(FielDHub)</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(qrlabelr)</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(uuid)</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(cli)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 </div>
 </section>
@@ -178,7 +179,7 @@ background: #006699;
 </div>
 </section>
 <section id="unifatorial" class="level1" data-number="3">
-<h1 data-number="3"><span class="header-section-number">3</span> UNIFATORIAL</h1>
+<h1 data-number="3"><span class="header-section-number">3</span> Unifatorial</h1>
 <section id="caderno-de-campo" class="level2" data-number="3.1">
 <h2 data-number="3.1" class="anchored" data-anchor-id="caderno-de-campo"><span class="header-section-number">3.1</span> Caderno de campo</h2>
 </section>
@@ -236,7 +237,7 @@ background: #006699;
 </section>
 </section>
 <section id="fatorial" class="level1" data-number="4">
-<h1 data-number="4"><span class="header-section-number">4</span> FATORIAL</h1>
+<h1 data-number="4"><span class="header-section-number">4</span> Fatorial</h1>
 <section id="caderno-de-campo-1" class="level2" data-number="4.1">
 <h2 data-number="4.1" class="anchored" data-anchor-id="caderno-de-campo-1"><span class="header-section-number">4.1</span> Caderno de campo</h2>
 </section>
@@ -751,20 +752,20 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
 <span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a><span class="in">```{r warning=FALSE, message=FALSE}</span></span>
 <span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a><span class="in">library(tidyverse)</span></span>
-<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a><span class="in">library(FielDHub)</span></span>
-<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a><span class="in">library(qrlabelr)</span></span>
-<span id="cb4-34"><a href="#cb4-34" aria-hidden="true" tabindex="-1"></a><span class="in">library(uuid)</span></span>
-<span id="cb4-35"><a href="#cb4-35" aria-hidden="true" tabindex="-1"></a><span class="in">library(cli)</span></span>
-<span id="cb4-36"><a href="#cb4-36" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb4-37"><a href="#cb4-37" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-38"><a href="#cb4-38" aria-hidden="true" tabindex="-1"></a><span class="fu"># Funções auxiliares</span></span>
-<span id="cb4-41"><a href="#cb4-41" aria-hidden="true" tabindex="-1"></a><span class="in">```{r}</span></span>
-<span id="cb4-42"><a href="#cb4-42" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"funcoes_planejamento.R"</span>)</span>
-<span id="cb4-43"><a href="#cb4-43" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb4-44"><a href="#cb4-44" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a><span class="in">library(Rcpp)</span></span>
+<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a><span class="in">library(FielDHub)</span></span>
+<span id="cb4-34"><a href="#cb4-34" aria-hidden="true" tabindex="-1"></a><span class="in">library(qrlabelr)</span></span>
+<span id="cb4-35"><a href="#cb4-35" aria-hidden="true" tabindex="-1"></a><span class="in">library(uuid)</span></span>
+<span id="cb4-36"><a href="#cb4-36" aria-hidden="true" tabindex="-1"></a><span class="in">library(cli)</span></span>
+<span id="cb4-37"><a href="#cb4-37" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb4-38"><a href="#cb4-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-39"><a href="#cb4-39" aria-hidden="true" tabindex="-1"></a><span class="fu"># Funções auxiliares</span></span>
+<span id="cb4-42"><a href="#cb4-42" aria-hidden="true" tabindex="-1"></a><span class="in">```{r}</span></span>
+<span id="cb4-43"><a href="#cb4-43" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"funcoes_planejamento.R"</span>)</span>
+<span id="cb4-44"><a href="#cb4-44" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
 <span id="cb4-45"><a href="#cb4-45" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb4-46"><a href="#cb4-46" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-47"><a href="#cb4-47" aria-hidden="true" tabindex="-1"></a><span class="fu"># UNIFATORIAL</span></span>
+<span id="cb4-47"><a href="#cb4-47" aria-hidden="true" tabindex="-1"></a><span class="fu"># Unifatorial</span></span>
 <span id="cb4-48"><a href="#cb4-48" aria-hidden="true" tabindex="-1"></a><span class="fu">## Caderno de campo</span></span>
 <span id="cb4-49"><a href="#cb4-49" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb4-50"><a href="#cb4-50" aria-hidden="true" tabindex="-1"></a><span class="fu">## Etiquetas</span></span>
@@ -818,7 +819,7 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
 <span id="cb4-100"><a href="#cb4-100" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
 <span id="cb4-101"><a href="#cb4-101" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb4-102"><a href="#cb4-102" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-103"><a href="#cb4-103" aria-hidden="true" tabindex="-1"></a><span class="fu"># FATORIAL</span></span>
+<span id="cb4-103"><a href="#cb4-103" aria-hidden="true" tabindex="-1"></a><span class="fu"># Fatorial</span></span>
 <span id="cb4-104"><a href="#cb4-104" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb4-105"><a href="#cb4-105" aria-hidden="true" tabindex="-1"></a><span class="fu">## Caderno de campo</span></span>
 <span id="cb4-106"><a href="#cb4-106" aria-hidden="true" tabindex="-1"></a></span>

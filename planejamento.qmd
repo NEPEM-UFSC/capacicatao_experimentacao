@@ -17,7 +17,7 @@ format:
     fontsize: 14pt
     linestretch: 1.5
     smooth-scroll: true
-    title-block-banner: "#006699"  # cor do banner do título
+    title-block-banner: "#00FF99"  # cor do banner do título
     title-block-style: default
     title-block-banner-color: white
     mainfont: "Arial"
@@ -29,6 +29,7 @@ format:
 
 ```{r warning=FALSE, message=FALSE}
 library(tidyverse)
+library(Rcpp)
 library(FielDHub)
 library(qrlabelr)
 library(uuid)
@@ -41,7 +42,6 @@ library(rio)
 ```{r}
 source("funcoes_planejamento.R")
 ```
-
 
 
 # Unifatorial
@@ -143,3 +143,4 @@ export(croqui_planta, "caderno_planta.csv")
 ## Etiquetas
 
 # Análise de dados
+
