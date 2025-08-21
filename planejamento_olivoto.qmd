@@ -244,6 +244,13 @@ D(expression(b0 + b1*x + b2 * x^2), "x")
 fd <- function(x, b1, b2){
   b1 + b2 * (2 * x)
 } 
+
+# encontrar onde a função cruza o 0
+uniroot(fd, 
+        interval = c(0, 120),
+        b1 = b1,
+        b2 = b2)
+
 met <- -b1 / (2 * b2)
 
 # mapear a derivada de 0 a 120
