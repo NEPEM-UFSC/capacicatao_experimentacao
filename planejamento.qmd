@@ -17,7 +17,7 @@ format:
     fontsize: 14pt
     linestretch: 1.5
     smooth-scroll: true
-    title-block-banner: "#00FF99"  # cor do banner do título
+    title-block-banner: "#006699"  # cor do banner do título
     title-block-style: default
     title-block-banner-color: white
     mainfont: "Arial"
@@ -29,12 +29,13 @@ format:
 
 ```{r warning=FALSE, message=FALSE}
 library(tidyverse)
-library(Rcpp)
 library(FielDHub)
 library(qrlabelr)
 library(uuid)
 library(cli)
 library(rio)
+library(AgroR)
+library(patchwork)
 
 ```
 
@@ -42,6 +43,7 @@ library(rio)
 ```{r}
 source("funcoes_planejamento.R")
 ```
+
 
 
 # Unifatorial
@@ -142,5 +144,140 @@ export(croqui_planta, "caderno_planta.csv")
 
 ## Etiquetas
 
+
+
+
+
 # Análise de dados
+## Unifatorial qualitativo
+```{r}
+df <- 
+  import("dados.xlsx", sheet = "quali") |> 
+  mutate(MP_med = MP / NPLA,
+         MC_med = MC / NPLA,
+         NC_med = NC / NPLA)
+
+# importar todas as abas
+dflist <- import_list("dados.xlsx")
+
+# trocar <- function(x){
+#   str_replace(x, ",", ".") |> as.numeric()
+# }
+# df2 <- import("https://docs.google.com/spreadsheets/d/1NDEsPFm2Wqe11fdGGsBXtxdFyqKbXMO8/edit?gid=247240163#gid=247240163") |> 
+#   mutate(across(AP:MMG, trocar))
+
+```
+
+
+### Inspeção
+
+```{r}
+ggplot(df, aes(TREATMENT, NC_med)) +
+  geom_boxplot()
+```
+
+
+### ANOVA
+```{r}
+an_nc <- with(df, DBC(TREATMENT, BLOCO, NC_med,
+                      xlab = "Genótipos",
+                      ylab = "Número de Cápsulas por planta"))
+
+an_mp <- with(df, DBC(TREATMENT, BLOCO, MP_med,
+                      xlab = "Genótipos",
+                      ylab = "Biomassa (gramas por planta)"))
+
+
+an_nc$plot + an_mp$plot +
+  plot_annotation(tag_levels = "a")
+
+ggsave("resultado_quali.jpg",
+       width = 10,
+       height = 4)
+```
+
+## Unifatorial quantitativo
+
+```{r}
+dflin <- import("dados.xlsx", sheet = "linear")
+
+ggplot(dflin, aes(DOSEN, DGCI)) +
+  geom_point() +
+  stat_poly_line() +
+  stat_poly_eq(use_label(c("eq", "R2")))
+
+
+mod <- lm(DGCI ~ DOSEN, data = dflin)
+summary(mod)
+
+```
+
+## quadrática
+```{r}
+dfquad <- import("dados.xlsx", sheet = "quadratica")
+
+ggplot(dfquad, aes(dosen, rg)) +
+  geom_point() +
+  geom_smooth(method = "lm",
+              formula = y ~ poly(x, degree = 2))
+
+
+anova_quad <- 
+  with(dfquad, DBC(dosen, bloco, rg,
+                   quali = FALSE,
+                   grau = 2))
+
+
+
+```
+
+### Máxima eficiência técnica e econômica
+```{r}
+b0 <- 2891.817129
+b1 <- 30.311613
+b2 <- -0.177405
+
+# y = b0 + b1*x + b2 * x^2
+
+D(expression(b0 + b1*x + b2 * x^2), "x")
+
+fd <- function(x, b1, b2){
+  b1 + b2 * (2 * x)
+} 
+
+# encontrar onde a função cruza o 0
+uniroot(fd, 
+        interval = c(0, 120),
+        b1 = b1,
+        b2 = b2)
+
+met <- -b1 / (2 * b2)
+
+# mapear a derivada de 0 a 120
+plot(0:120, fd(0:120, b1, b2))
+
+
+## máxima eficiência econômica
+pureia <- 7.5
+paveia <- 1.2
+
+# máxima eficiência economica
+mee <- met + pureia / (2 * b2 * paveia)
+
+fd(67.81549, b1, b2)
+
+
+anova_quad$plot +
+  geom_vline(xintercept = met, color = "red") +
+  geom_vline(xintercept = mee, color = "blue")
+
+```
+
+
+# Fatorial
+```{r}
+dftrigo <- import("dados.xlsx", sheet = "quali_quali")
+
+with(dftrigo, FAT2DBC(ENX, NIT, REP, L))
+```
 
